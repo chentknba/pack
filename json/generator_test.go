@@ -6,7 +6,7 @@ import (
 )
 
 func TestLex(t *testing.T) {
-    lex := tojson.NewLexer()
+    lex := tojson.NewGenerator()
 
     go func() {
         items := make([]tojson.Item, 2)

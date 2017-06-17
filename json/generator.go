@@ -1,6 +1,6 @@
 package json
 
-type stateFn func(l *lexer) stateFn
+type stateFn func(l *generator) stateFn
 
 type Item struct {
 	id    string
@@ -14,7 +14,7 @@ func NewItem(id, t, scope, desc, v string) Item {
 	return Item{id, t, scope, desc, v}
 }
 
-type lexer struct {
+type generator struct {
 	ch     chan []Item
 	output string
 
@@ -27,31 +27,31 @@ type lexer struct {
 	ri, ci int
 }
 
-func (l *lexer) String() string {
+func (l *generator) String() string {
 	return l.output
 }
 
-func (l *lexer) Push(items []Item) {
+func (l *generator) Push(items []Item) {
 	l.ch <- items
 }
 
-func (l *lexer) Wait() {
+func (l *generator) Wait() {
 	<-l.done
 }
 
-func (l *lexer) reset() {
+func (l *generator) reset() {
 	l.output = ""
 	l.ri = 0
 	l.ci = 0
 }
 
-func (l *lexer) abort() {
+func (l *generator) abort() {
 	l.reset()
 
 	l.done <- struct{}{}
 }
 
-func (l *lexer) addItem(item *Item) error {
+func (l *generator) addItem(item *Item) error {
 	if item.id == "" || item.v == "" {
 		return nil
 	}
@@ -84,21 +84,21 @@ func (l *lexer) addItem(item *Item) error {
 	return nil
 }
 
-func nullState(l *lexer) stateFn {
+func genNull(l *generator) stateFn {
 	return nil
 }
 
-func startState(l *lexer) stateFn {
+func genStart(l *generator) stateFn {
 	l.output += "["
 
-	return newRowState
+	return genNewRow
 }
 
-func newRowState(l *lexer) stateFn {
+func genNewRow(l *generator) stateFn {
 	row := <-l.ch
 
 	if len(row) <= 0 {
-		return endState
+		return genEnd
 	}
 
 	if l.ri > 0 {
@@ -112,7 +112,7 @@ func newRowState(l *lexer) stateFn {
 			l.err = err
 			l.abort()
 
-			return nullState
+			return genNull
 		}
 	}
 
@@ -121,10 +121,10 @@ func newRowState(l *lexer) stateFn {
 
 	l.ri++
 
-	return newRowState
+	return genNewRow
 }
 
-func endState(l *lexer) stateFn {
+func genEnd(l *generator) stateFn {
 	l.output += "]"
 
 	l.done <- struct{}{}
@@ -132,21 +132,17 @@ func endState(l *lexer) stateFn {
 	return nil
 }
 
-func NewLexer() *lexer {
-	l := &lexer{
+func NewGenerator() *generator {
+	g := &generator{
 		ch:   make(chan []Item),
 		done: make(chan struct{}),
 	}
 
-	s := startState
-
-	go func(l *lexer) {
-		for {
-			if s = s(l); s == nil {
-				break
-			}
+	go func(g *generator) {
+		for state := genStart; state != nil; {
+			state = state(g)
 		}
-	}(l)
+	}(g)
 
-	return l
+	return g
 }
