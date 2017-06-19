@@ -97,7 +97,7 @@ func NewScaner(xlfile *xlsx.File, dict_name string) *scaner {
 		sm := dict_meta
 		cm := dict_meta
 
-        m := make(map[int]int)
+		m := make(map[int]int)
 
 		for ci, cell := range scope_row.Cells {
 			text, _ := cell.String()
@@ -118,7 +118,7 @@ func NewScaner(xlfile *xlsx.File, dict_name string) *scaner {
 					f |= SPE_S
 				}
 
-                m[ci] = f
+				m[ci] = f
 			}
 
 			if f&SPE_K > 0 && f&SPE_C > 0 {
@@ -188,7 +188,7 @@ func NewScaner(xlfile *xlsx.File, dict_name string) *scaner {
 				d, _ := sh.Cell(3, ci).String()
 				v, _ := cell.String()
 
-                f := m[ci]
+				f := m[ci]
 
 				item := NewItem(k, t, s, d, v, ri, f)
 
