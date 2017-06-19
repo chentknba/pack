@@ -1,27 +1,27 @@
 package json_test
 
 import (
-    "testing"
-    tojson "github.com/chentknba/pack/json"
+	tojson "github.com/chentknba/pack/json"
+	"testing"
 )
 
 func TestLex(t *testing.T) {
-    lex := tojson.NewGenerator()
+	lex := tojson.NewGenerator()
 
-    go func() {
-        items := make([]tojson.Item, 2)
+	go func() {
+		items := make([]tojson.Item, 2)
 
-        items = append(items, tojson.NewItem("id1", "int", "s", "desc", "100"))
-        items = append(items, tojson.NewItem("col2", "string", "s", "desc", "xxx"))
+		items = append(items, tojson.NewItem("id1", "int", "s", "desc", "100"))
+		items = append(items, tojson.NewItem("col2", "string", "s", "desc", "xxx"))
 
-        lex.Push(items)
+		lex.Push(items)
 
-        lex.Push(items)
+		lex.Push(items)
 
-        lex.Push(make([]tojson.Item, 0))
-    }()
+		lex.Push(make([]tojson.Item, 0))
+	}()
 
-    lex.Wait()
+	lex.Wait()
 
-    t.Error(lex)
+	t.Error(lex)
 }
