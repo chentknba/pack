@@ -2,7 +2,7 @@ package json
 
 import (
 	"fmt"
-	"strconv"
+	_ "strconv"
 
 	"github.com/tealeg/xlsx"
 )
@@ -10,28 +10,21 @@ import (
 type scaner struct {
 	svrch chan string
 	clich chan string
-
-	svrmeta chan string
-	climeta chan string
 }
 
-func (s *scaner) GetOutput() (string, string, string, string) {
-	return <-s.svrch, <-s.clich, <-s.svrmeta, <-s.climeta
+func (s *scaner) GetOutput() (string, string) {
+	return <-s.svrch, <-s.clich
 }
 
 func (s *scaner) Close() {
 	close(s.svrch)
 	close(s.clich)
-	close(s.svrmeta)
-	close(s.climeta)
 }
 
 func NewScaner(xlfile *xlsx.File, dict_name string) *scaner {
 	s := &scaner{
 		svrch:   make(chan string, 1),
 		clich:   make(chan string, 1),
-		svrmeta: make(chan string, 1),
-		climeta: make(chan string, 1),
 	}
 
 	go func(xlfile *xlsx.File) {
@@ -75,36 +68,13 @@ func NewScaner(xlfile *xlsx.File, dict_name string) *scaner {
 		}
 
 		// 主键、客户端、服务器字段校验
-		skeynum, ckeynum := 1, 1
-
-		var dict_meta string
-		var keystr string
-
-		pathstr := "path = " + "\"" + dict_name + "\""
-		fmtstr := "format = \"json\""
-
-		//dict_meta += "\r\n"
-		dict_meta += "{"
-		dict_meta += "\r\n"
-		dict_meta += "\t\t"
-		dict_meta += pathstr
-		dict_meta += ","
-		dict_meta += "\r\n"
-		dict_meta += "\t\t"
-		dict_meta += fmtstr
-		dict_meta += ","
-
-		sm := dict_meta
-		cm := dict_meta
-
 		m := make(map[int]int)
-
 		for ci, cell := range scope_row.Cells {
 			text, _ := cell.String()
 			id, _ := sh.Cell(0, ci).String()
 
-			f := SPE_NONE
-			for ci, c := range text {
+			f := m[ci]
+			for _, c := range text {
 				if c != 'k' && c != 's' && c != 'c' {
 					fmt.Printf("invaild scope definition, identi:%v scope:%v\n", id, text)
 					return
@@ -112,70 +82,41 @@ func NewScaner(xlfile *xlsx.File, dict_name string) *scaner {
 
 				if c == 'k' {
 					f |= SPE_K
-				} else if c == 'c' {
+				}else if c == 'c' {
 					f |= SPE_C
-				} else if c == 's' {
+				}else if c == 's' {
 					f |= SPE_S
 				}
 
 				m[ci] = f
 			}
-
-			if f&SPE_K > 0 && f&SPE_C > 0 {
-				keyi := "key" + strconv.Itoa(ckeynum)
-				keystr = keyi + "=" + "\"" + id + "\""
-
-				cm += "\r\n"
-				cm += "\t\t"
-				cm += keystr
-				cm += ","
-
-				ckeynum++
-			}
-
-			if f&SPE_K > 0 && f&SPE_S > 0 {
-				keyi := "key" + strconv.Itoa(skeynum)
-				keystr = keyi + "=" + "\"" + id + "\""
-
-				sm += "\r\n"
-				sm += "\t\t"
-				sm += keystr
-				sm += ","
-
-				skeynum++
-			}
 		}
 
-		dict_meta += "\r\n"
-		dict_meta += "}"
-
-		cm += "\r\n"
-		cm += "}"
-
-		sm += "\r\n"
-		sm += "}"
-
-		gen := NewGenerator()
+		sgen := NewGenerator()
+		cgen := NewGenerator()
 
 		for ri, row := range rows {
 			if ri < 4 {
 				continue
 			}
 
-			end := true
-			for _, cell := range row.Cells {
-				if str, _ := cell.String(); str != "" {
-					end = false
-					break
-				}
-			}
+			// end := true
+			// for _, cell := range row.Cells {
+			// 	if str, _ := cell.String(); str != "" {
+			// 		end = false
+			// 		break
+			// 	}
+			// }
 
-			if end {
-				gen.EndPush()
-				break
-			}
+			// if end {
+			// 	sgen.EndPush()
+			// 	cgen.EndPush()
 
-			items := make([]Item, 0)
+			// 	break
+			// }
+
+			sitems := make([]Item, 0)
+			citems := make([]Item, 0)
 
 			for ci, cell := range row.Cells {
 				k, _ := sh.Cell(0, ci).String()
@@ -190,23 +131,26 @@ func NewScaner(xlfile *xlsx.File, dict_name string) *scaner {
 
 				f := m[ci]
 
-				item := NewItem(k, t, s, d, v, ri, f)
+				item := NewItem(k, t, s, d, v, ri)
 
-				items = append(items, item)
+				if f & SPE_S != 0 {
+					sitems = append(sitems, item)
+				}
 
+				if f & SPE_C != 0 {
+					citems = append(citems, item)
+				}
 			}
 
-			gen.Push(items)
+			sgen.Push(sitems)
+			cgen.Push(citems)
 		}
 
-		gen.EndPush()
+		sgen.EndPush()
+		cgen.EndPush()
 
-		<-gen.Done()
-
-		s.svrch <- gen.svout
-		s.clich <- gen.ciout
-		s.svrmeta <- sm
-		s.climeta <- cm
+		s.svrch <- sgen.Done()
+		s.clich <- cgen.Done()
 
 	}(xlfile)
 

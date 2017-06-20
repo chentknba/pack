@@ -6,7 +6,7 @@ import (
 	"strconv"
 )
 
-type stateFn func(l *generator) stateFn
+type stateFn func(l *dictgen) stateFn
 
 const (
 	SPE_NONE = 0x00
@@ -22,64 +22,55 @@ type Item struct {
 	desc  string
 	v     string
 	ri    int
-	f     int
 }
 
-func NewItem(id, t, scope, desc, v string, ri, f int) Item {
-	return Item{id, t, scope, desc, v, ri, f}
+func NewItem(id, t, scope, desc, v string, ri int) Item {
+	return Item{id, t, scope, desc, v, ri}
 }
 
-type generator struct {
+type dictgen struct {
 	ch     chan []Item
 	output string
 
-	svout  string
-	ciout  string
-	svmeta string
-	cimeta string
-
-	svki int
-	ciki int
-
-	done chan struct{}
+	done chan string
 	err  chan error
 
 	ri, ci int
 }
 
-func (l *generator) String() string {
+func (l *dictgen) String() string {
 	return l.output
 }
 
-func (l *generator) Push(items []Item) {
+func (l *dictgen) Push(items []Item) {
 	l.ch <- items
 }
 
-func (l *generator) EndPush() {
+func (l *dictgen) EndPush() {
 	l.Push(make([]Item, 0))
 }
 
-func (l *generator) Done() chan struct{} {
-	return l.done
+func (l *dictgen) Done() string {
+	return <- l.done
 }
 
-func (l *generator) Error() chan error {
+func (l *dictgen) Error() chan error {
 	return l.err
 }
 
-func (l *generator) reset() {
+func (l *dictgen) reset() {
 	l.output = ""
 	l.ri = 0
 	l.ci = 0
 }
 
-func (l *generator) abort() {
+func (l *dictgen) abort() {
 	l.reset()
 
-	l.done <- struct{}{}
+	l.done <- ""
 }
 
-func (l *generator) addItem(item *Item) error {
+func (l *dictgen) addItem(item *Item) error {
 	if item.id == "" || item.v == "" {
 		return nil
 	}
@@ -88,8 +79,8 @@ func (l *generator) addItem(item *Item) error {
 	val := item.v
 
 	if item.t == "int" {
-		if _, err := strconv.ParseInt(val, 10, 64); err != nil {
-			return errors.New(fmt.Sprintf("unexpected type error, row:[%v] identi:%v define int, but not a number. err : %v", item.ri, key, err))
+		if _, err := strconv.Atoi(val); err != nil {
+			return errors.New(fmt.Sprintf("unexpected type error, row:[%v] identi:%v define:int val:%v, but not a number. err : %v", item.ri+1, key, item.v, err))
 		}
 
 	} else if item.t == "decimal" {
@@ -110,12 +101,6 @@ func (l *generator) addItem(item *Item) error {
 
 	l.output += "\t\t"
 
-	if item.f&SPE_C > 0 {
-	}
-
-	if item.f&SPE_S > 0 {
-	}
-
 	l.output += object
 
 	l.ci++
@@ -123,18 +108,18 @@ func (l *generator) addItem(item *Item) error {
 	return nil
 }
 
-func genNull(l *generator) stateFn {
+func genNull(l *dictgen) stateFn {
 	return nil
 }
 
-func genStart(l *generator) stateFn {
+func genStart(l *dictgen) stateFn {
 	l.output += "["
 	l.output += "\r\n"
 
 	return genNewRow
 }
 
-func genNewRow(l *generator) stateFn {
+func genNewRow(l *dictgen) stateFn {
 	row := <-l.ch
 
 	if len(row) <= 0 {
@@ -172,26 +157,23 @@ func genNewRow(l *generator) stateFn {
 	return genNewRow
 }
 
-func genEnd(l *generator) stateFn {
+func genEnd(l *dictgen) stateFn {
 	l.output += "\r\n"
 	l.output += "]"
 
-	l.svout = l.output
-	l.ciout = l.output
-
-	l.done <- struct{}{}
+	l.done <- l.output
 
 	return nil
 }
 
-func NewGenerator() *generator {
-	g := &generator{
+func NewGenerator() *dictgen {
+	g := &dictgen{
 		ch:   make(chan []Item, 1),
-		done: make(chan struct{}, 1),
+		done: make(chan string, 1),
 		err:  make(chan error, 1),
 	}
 
-	go func(g *generator) {
+	go func(g *dictgen) {
 		for state := genStart; state != nil; {
 			state = state(g)
 		}
