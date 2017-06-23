@@ -1,37 +1,95 @@
 package lua
 
 import (
-	"fmt"
-	// "strconv"
+	_ "fmt"
 
+	_ "sync"
 	"github.com/tealeg/xlsx"
 )
 
+// var wg sync.WaitGroup
+
 type errnogen struct {
-	done chan string
+	m map[string]string
 }
 
-func (g *errnogen) Done() string {
-	return <-g.done
+func (g *errnogen) Done() map[string]string {
+	return g.m
 }
 
-func NewErrnogen(xlfile *xlsx.File, lua_name string) *errnogen {
-	g := &errnogen{
-		done : make(chan string, 1),
+// func gen(sh *xlsx.Sheet, r chan result) {
+func gen(sh *xlsx.Sheet) result {
+	var errno string
+
+	m := make(map[string]int)
+	for ci, cell := range sh.Rows[0].Cells {
+		text, _ := cell.String()
+		m[text] = ci
 	}
 
-	go func(xlfile * xlsx.File) {
-		defer func() {
-			if r := recover(); r != nil {
-				fmt.Println("recover in metagen ", r)
-			}
-		}()
+	rows := sh.Rows
 
-		var errno string
+	for ri, _ := range rows {
+		if ri < 4 {
+			continue
+		}
 
-		g.done <- errno
+		var id, name, content, params, desc string
 
-	}(xlfile)
+		id, _ = sh.Cell(ri, m["id"]).String()
+		name, _ = sh.Cell(ri, m["name"]).String()
+		content, _ = sh.Cell(ri, m["content"]).String()
+		params, _ = sh.Cell(ri, m["params"]).String()
+		desc, _ = sh.Cell(ri, m["desc"]).String()
+
+		errno += TAB_1
+		errno += name
+		errno += TAB_10
+		errno += "="
+		errno += " "
+		errno += id
+		errno += ","
+		errno += TAB_2
+		errno += COMMENT
+		errno += " "
+		errno += content
+		errno += "("
+		if params != "" {
+			errno += params
+		}
+
+		if desc != "" {
+			errno += desc
+		}
+
+		errno += ")"
+	}
+
+	return result{file:sh.Name, content:errno}
+	// r <- result{file:sh.Name, content:errno}
+}
+
+func NewErrnogen(xlfile *xlsx.File) *errnogen {
+	g := &errnogen{
+		m : make(map[string]string),
+	}
+
+	// ch := make(chan result)
+	// defer close(ch)
+
+	for _, sh := range xlfile.Sheets {
+		// wg.Add(1)
+
+		// go gen(sh, ch)
+
+		// result := <-ch
+
+		result := gen(sh)
+
+		g.m[result.file] = result.content
+	}
+
+	// wg.Wait()
 
 	return g
 }

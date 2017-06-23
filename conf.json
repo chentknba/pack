@@ -2,6 +2,7 @@
     "execl_path" : "E:/arpgpd/数据表/",
     "svr_dict_path" : "F:/mine/go/project/src/github.com/chentknba/pack/test/sdict/",
 	"cli_dict_path" : "F:/mine/go/project/src/github.com/chentknba/pack/test/cdict/",
+	
 	"svr_meta_path" : "F:/mine/go/project/src/github.com/chentknba/pack/test/sdict/",
-	"cli_meta_path" : "F:/mine/go/project/src/github.com/chentknba/pack/test/cdict/"
+	"cli_meta_path" : "F:/mine/go/project/src/github.com/chentknba/pack/test/cdict/" 
 }

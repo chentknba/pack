@@ -2,14 +2,16 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
+	"flag"
 	"fmt"
-	"github.com/tealeg/xlsx"
 	"io/ioutil"
 	"os"
 	"sync"
 
 	tojson "github.com/chentknba/pack/json"
 	tolua  "github.com/chentknba/pack/lua"
+	"github.com/tealeg/xlsx"
 )
 
 var wg sync.WaitGroup
@@ -24,11 +26,27 @@ var cli_dict_path string
 var svr_meta_path string
 var cli_meta_path string
 
+// cmd param
+var do_cmd_dict   *bool
+var do_cmd_errno  *bool
+var do_cmd_action *bool
+
 const (
 	DICT_META_FILE = "dict_metas_auto.lua"
 	ERRNO_FILE     = "errno_auto.lua"
 	AUTO_FILE_DESC = "-- auto generated, modification is not permitted."
 )
+
+const help_msg = `
+pack is a tool for execl -> json/lua. 
+
+Usge:
+	pack -option 
+
+The options are:
+	dict 		将execl配置生成dict_xxx.json, 同时生成dict_define.lua
+	errno 		将错误码execl生成lua文件
+	action 		将行为日志execl生成lua文件`
 
 func loadConf() error {
 	bytes, err := ioutil.ReadFile("conf.json")
@@ -105,16 +123,15 @@ func genDict(dict_name, execl_name string) {
 }
 
 // genMeta 生成配置的dict_define
-func genMeta(dict_name, execl_name string) <-chan string {
+func genMeta(dict_name, execl_name string) (<-chan string, error) {
 	file := execl_path + execl_name + ".xlsx"
 
 	xlfile, err := xlsx.OpenFile(file)
 	if err != nil {
-		fmt.Printf("open %v err: %v\n", execl_name, err)
-		os.Exit(-1)
+		return nil, errors.New(fmt.Sprintf("open %v err: %v\n", execl_name, err))
 	}
 
-	ch := make(chan string)
+	ch := make(chan string, 1)
 	gen := tolua.NewMetagen(xlfile, dict_name)
 
 	wg.Add(1)
@@ -127,11 +144,11 @@ func genMeta(dict_name, execl_name string) <-chan string {
 		ch <- meta
 	}()
 
-	return ch
+	return ch, nil
 }
 
 // genErrno 生成各错误码
-func genErrno(lua_name, execl_name string) {
+func genErrno(execl_name string) {
 	file := execl_path + execl_name + ".xlsx"
 
 	xlfile, err := xlsx.OpenFile(file)
@@ -140,38 +157,12 @@ func genErrno(lua_name, execl_name string) {
 		os.Exit(-1)
 	}
 
-	gen := tolua.NewErrnogen(xlfile, lua_name)
+	gen := tolua.NewErrnogen(xlfile)
+	result := gen.Done()
 
-	str := gen.Done()
-
-	var errno string
-
-	errno += AUTO_FILE_DESC
-	errno += "\r\n"
-	errno += "\r\n"
-	errno += "local errno = "
-	errno += "\r\n"
-	errno += "{"
-	errno += "\r\n"
-
-	errno += str
-	errno += "\r\n"
-
-	errno += "}"
-	errno += "\r\n"
-	errno += "\r\n"
-	errno += "return errno"
-
-	// sout := svr_meta_path + ERRNO_FILE
-	// cout := cli_meta_path + ERRNO_FILE
-
-	// if err := save(sout, errno); err != nil {
-	// 	fmt.Printf("write svr errno fail, err: %v\n", err)
-	// }
-
-	// if err := save(cout, errno); err != nil {
-	// 	fmt.Printf("write cli errno fail, err: %v\n", err)
-	// }
+	for file, content := range result {
+		save(file, content)
+	}
 }
 
 // cmd_gendict 生成各配置文件对应的json
@@ -196,7 +187,11 @@ func cmd_genmeta() {
 	meta += "{"
 
 	for dict_name, execl_name := range dict_cfg {
-		ch := genMeta(dict_name, execl_name)
+		ch, err := genMeta(dict_name, execl_name)
+		if err != nil {
+			fmt.Printf("unexpected genMeta fail, err: %v\n", err)
+			continue
+		}
 
 		meta += "\r\n"
 		meta += <-ch
@@ -226,6 +221,73 @@ func cmd_genmeta() {
 
 // cmd_generrno 生成 errno.lua
 func cmd_generrno() {
+	execl_name := "errno"
+
+	file := execl_path + execl_name + ".xlsx"
+
+	xlfile, err := xlsx.OpenFile(file)
+	if err != nil {
+		fmt.Printf("open %v err: %v\n", execl_name, err)
+		return
+	}
+
+	var errno string
+	errno += AUTO_FILE_DESC
+	errno += "\r\n"
+	errno += "\r\n"
+	errno += "local errno = "
+	errno += "\r\n"
+	errno += "{"
+	errno += "\r\n"
+
+	gen := tolua.NewErrnogen(xlfile)
+	result := gen.Done()
+
+	for file, content := range result {
+		e := errno
+
+		e += content
+		e += "\r\n"
+		e += "}"
+		e += "\r\n"
+		e += "\r\n"
+		e += "return errno"
+
+		sf := svr_meta_path + file + ".lua"
+		cf := cli_meta_path + file + ".lua"
+
+		save(sf, e)
+		save(cf, e)
+	}
+}
+
+// cmd_genaction
+func cmd_genaction() {
+	execl_name := "action_log"
+	file := execl_path + execl_name + ".xlsx"
+
+	xlfile, err := xlsx.OpenFile(file)
+	if err != nil {
+		fmt.Printf("open %v err: %v\n", execl_name, err)
+		return
+	}
+
+	gen := tolua.NewActiongen(xlfile)
+	result := gen.Done()
+
+	for file, content := range result {
+		sf := svr_meta_path + file + ".lua"
+		cf := cli_meta_path + file + ".lua"
+
+		save(sf, content)
+		save(cf, content)
+	}
+}
+
+func init() {
+	do_cmd_dict    = flag.Bool("dict", false, "generate execl 2o dict_json.")
+	do_cmd_errno   = flag.Bool("errno", false, "generate errno.")
+	do_cmd_action  = flag.Bool("action", false, "generate action log.")
 }
 
 func main() {
@@ -234,11 +296,29 @@ func main() {
 		return
 	}
 
-	cmd_gendict()
+	flag.Parse()
 
-	cmd_genmeta()
+	if !*do_cmd_dict && !*do_cmd_errno && !*do_cmd_action {
+		fmt.Println(help_msg)
+		return
+	}
 
-	cmd_generrno()
+	if *do_cmd_dict {
+		fmt.Println("start gen dict.")
+
+		cmd_gendict()
+		cmd_genmeta()
+	}
+
+	if *do_cmd_errno{
+		fmt.Println("start gen errno.")
+		cmd_generrno()
+	}
+
+	if *do_cmd_action {
+		fmt.Println("start gen action log.")
+		cmd_genaction()
+	}
 
 	fmt.Println("Done.")
 }
